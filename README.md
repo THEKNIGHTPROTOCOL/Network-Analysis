@@ -15,7 +15,7 @@ Built with **Streamlit**, it provides an interactive dashboard for exploring com
 
 ---
 
-##3 🚀 Features
+### 🚀 Features
 
 ✅ Upload or use sample dataset (`comms.csv`)  
 ✅ Compute **network centrality metrics**:
@@ -78,11 +78,16 @@ Member3,Member7,2
 Leader2,Leader3,6
 Leader3,Leader1,4
 
-🌐 Example Dashboard Screenshot
+---
+
+### 🌐 Example Dashboard Screenshot
+
 
 (Insert screenshot of your app here after running it)
 
-📌 Insights
+---
+
+### 📌 Insights
 
 Leaders → highest degree centrality, most connections
 
