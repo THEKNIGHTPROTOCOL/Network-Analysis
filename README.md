@@ -82,8 +82,8 @@ Leader3,Leader1,4
 
 ### 🌐 Example Dashboard Screenshot
 
+![](https://github.com/user-attachments/assets/03e98026-d64b-43f9-938d-5405296a180f)
 
-(Insert screenshot of your app here after running it)
 
 ---
 
