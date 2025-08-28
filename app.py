@@ -2,118 +2,117 @@ import streamlit as st
 import pandas as pd
 import networkx as nx
 from pyvis.network import Network
-import streamlit.components.v1 as components
+from io import StringIO, BytesIO
+import base64
 
-# ===============================
-# Streamlit Page Config
-# ===============================
-st.set_page_config(page_title="🕸️ Network Analysis", layout="wide")
-st.title("🕸️ Interactive Network Analysis Dashboard")
+# ================== CONFIG ==================
+st.set_page_config(page_title="🌐 Network Analysis Dashboard", layout="wide")
+st.title("🌐 Network Analysis Dashboard")
+st.write("Analyze communication patterns and connections within suspected networks.")
 
-# ===============================
-# File Upload / Sample Dataset
-# ===============================
-st.sidebar.header("📂 Data Controls")
+# ================== LOAD DATA ==================
+st.sidebar.header("📂 Data Options")
+uploaded_file = st.sidebar.file_uploader("Upload Edge List CSV", type=["csv"])
 
-uploaded_file = st.sidebar.file_uploader("Upload CSV (source,target,weight)", type=["csv"])
+@st.cache_data
+def load_sample_data():
+    data = {
+        "source": ["A", "A", "B", "C", "D", "E", "F", "G"],
+        "target": ["B", "C", "D", "D", "E", "F", "G", "A"],
+        "weight": [5, 3, 4, 2, 1, 2, 4, 3]
+    }
+    return pd.DataFrame(data)
 
-if uploaded_file is not None:
+if uploaded_file:
     df = pd.read_csv(uploaded_file)
 else:
-    st.sidebar.info("Using sample dataset (comms.csv)")
-    df = pd.read_csv("data/comms.csv")
+    st.sidebar.info("No file uploaded. Using **sample dataset**.")
+    df = load_sample_data()
 
-# ===============================
-# Preprocess Data
-# ===============================
-if "weight" not in df.columns:
-    df["weight"] = 1  # default if missing
+st.subheader("📊 Dataset Preview")
+st.dataframe(df.head())
 
-G = nx.from_pandas_edgelist(df, "source", "target", ["weight"])
+# ================== GRAPH SETTINGS ==================
+st.sidebar.header("⚙️ Graph Settings")
+directed = st.sidebar.checkbox("Directed Graph", value=True)
+weight_threshold = st.sidebar.slider("Minimum Edge Weight", 0, int(df["weight"].max()), 0)
 
-# ===============================
-# Sidebar Analysis Options
-# ===============================
-st.sidebar.header("⚙️ Visualization Settings")
+# Filter dataset by weight
+df_filtered = df[df["weight"] >= weight_threshold]
 
-min_weight = st.sidebar.slider("Minimum edge weight", 1, int(df["weight"].max()), 1)
-df = df[df["weight"] >= min_weight]
-G = nx.from_pandas_edgelist(df, "source", "target", ["weight"])
+# Build graph
+G = nx.DiGraph() if directed else nx.Graph()
+for _, row in df_filtered.iterrows():
+    G.add_edge(row["source"], row["target"], weight=row.get("weight", 1))
 
-layout_option = st.sidebar.selectbox(
-    "Graph Layout",
-    ["spring", "circular", "kamada_kawai"]
+# ================== METRICS ==================
+st.sidebar.header("📈 Metrics")
+metrics_choice = st.sidebar.multiselect(
+    "Select Metrics", ["Degree", "Betweenness", "Closeness", "Eigenvector"], default=["Degree"]
 )
 
-size_metric = st.sidebar.selectbox(
-    "Node Size Metric",
-    ["degree", "betweenness", "closeness"]
-)
+metrics = {}
+if "Degree" in metrics_choice:
+    metrics["Degree"] = nx.degree_centrality(G)
+if "Betweenness" in metrics_choice:
+    metrics["Betweenness"] = nx.betweenness_centrality(G)
+if "Closeness" in metrics_choice:
+    metrics["Closeness"] = nx.closeness_centrality(G)
+if "Eigenvector" in metrics_choice:
+    try:
+        metrics["Eigenvector"] = nx.eigenvector_centrality(G)
+    except nx.NetworkXException:
+        st.warning("⚠️ Eigenvector centrality failed (disconnected graph).")
 
-# ===============================
-# Centrality Computation
-# ===============================
-degree_centrality = nx.degree_centrality(G)
-betweenness_centrality = nx.betweenness_centrality(G)
-closeness_centrality = nx.closeness_centrality(G)
+# Convert metrics to DataFrame
+if metrics:
+    metrics_df = pd.DataFrame(metrics)
+    st.subheader("📌 Node Metrics")
+    st.dataframe(metrics_df)
 
-# Pick node size metric
-if size_metric == "degree":
-    centrality = degree_centrality
-elif size_metric == "betweenness":
-    centrality = betweenness_centrality
-else:
-    centrality = closeness_centrality
+    # Download metrics as CSV
+    csv_buffer = StringIO()
+    metrics_df.to_csv(csv_buffer)
+    st.download_button("⬇️ Download Metrics CSV", data=csv_buffer.getvalue(), file_name="metrics.csv", mime="text/csv")
 
-# ===============================
-# Community Detection
-# ===============================
-from networkx.algorithms.community import greedy_modularity_communities
-communities = list(greedy_modularity_communities(G))
-community_map = {}
-for i, c in enumerate(communities):
-    for node in c:
-        community_map[node] = i
+# ================== VISUALIZATION ==================
+st.subheader("🌍 Network Graph")
 
-# ===============================
-# PyVis Interactive Graph
-# ===============================
-net = Network(notebook=False, height="600px", width="100%", bgcolor="#222222", font_color="white")
-net.force_atlas_2based()
+def visualize_graph(G, metrics):
+    net = Network(height="600px", width="100%", bgcolor="#222222", font_color="white", notebook=False)
+    net.force_atlas_2based()
 
-for node in G.nodes():
-    net.add_node(
-        node,
-        title=f"Node: {node}<br>"
-              f"Degree: {degree_centrality.get(node,0):.2f}<br>"
-              f"Betweenness: {betweenness_centrality.get(node,0):.2f}<br>"
-              f"Closeness: {closeness_centrality.get(node,0):.2f}",
-        value=centrality.get(node, 1)*20,
-        color=f"hsl({community_map.get(node,0)*50},70%,50%)"
-    )
+    # Add nodes with metric values
+    for node in G.nodes():
+        title = "<br>".join([f"{m}: {round(v.get(node,0),3)}" for m,v in metrics.items()])
+        net.add_node(node, label=node, title=title, size=15 + (metrics.get("Degree", {}).get(node, 0) * 50))
 
-for source, target, data in G.edges(data=True):
-    net.add_edge(source, target, value=data["weight"])
+    # Add edges
+    for source, target, data in G.edges(data=True):
+        net.add_edge(source, target, value=data.get("weight", 1))
 
-# Save and display
-net.save_graph("network.html")
-HtmlFile = open("network.html", "r", encoding="utf-8")
-components.html(HtmlFile.read(), height=650)
+    return net
 
-# ===============================
-# Insights Panel
-# ===============================
-st.subheader("📊 Key Insights")
+net = visualize_graph(G, metrics)
 
-col1, col2 = st.columns(2)
+# Render directly inside Streamlit
+html = net.generate_html()
+st.components.v1.html(html, height=650, scrolling=True)
 
-with col1:
-    st.markdown("### 🔝 Top 5 Influential Nodes")
-    top_nodes = sorted(centrality.items(), key=lambda x: x[1], reverse=True)[:5]
-    st.table(pd.DataFrame(top_nodes, columns=["Node", f"{size_metric.capitalize()} Centrality"]))
+# ================== EGO NETWORK ==================
+st.sidebar.header("👤 Ego Network")
+ego_node = st.sidebar.selectbox("Select a node to focus", ["None"] + list(G.nodes()))
+if ego_node != "None":
+    st.subheader(f"🔎 Ego Network for {ego_node}")
+    ego_graph = nx.ego_graph(G, ego_node, radius=1)
+    ego_net = visualize_graph(ego_graph, metrics)
+    ego_html = ego_net.generate_html()
+    st.components.v1.html(ego_html, height=500, scrolling=True)
 
-with col2:
-    st.markdown("### 🏘️ Communities Detected")
-    st.write(f"Total Communities: {len(communities)}")
-    for i, c in enumerate(communities):
-        st.write(f"**Community {i+1}:** {list(c)}")
+# ================== DOWNLOAD GRAPH ==================
+st.sidebar.header("💾 Export")
+html_str = net.generate_html()
+b64 = base64.b64encode(html_str.encode()).decode()
+href = f'<a href="data:text/html;base64,{b64}" download="network_graph.html">⬇️ Download Network Graph HTML</a>'
+st.sidebar.markdown(href, unsafe_allow_html=True)
+
