@@ -1,81 +1,119 @@
+import streamlit as st
 import pandas as pd
 import networkx as nx
-import matplotlib.pyplot as plt
-import streamlit as st
+from pyvis.network import Network
+import streamlit.components.v1 as components
 
+# ===============================
 # Streamlit Page Config
-st.set_page_config(page_title="🕸️ Terrorist Network Analysis", layout="wide")
-st.title("🕸️ Network Analysis of Terrorist Groups")
+# ===============================
+st.set_page_config(page_title="🕸️ Network Analysis", layout="wide")
+st.title("🕸️ Interactive Network Analysis Dashboard")
 
-# Sidebar for dataset input
-st.sidebar.header("📂 Data Input")
-uploaded_file = st.sidebar.file_uploader("Upload communication CSV", type=["csv"])
+# ===============================
+# File Upload / Sample Dataset
+# ===============================
+st.sidebar.header("📂 Data Controls")
 
-# Load dataset
-if uploaded_file:
+uploaded_file = st.sidebar.file_uploader("Upload CSV (source,target,weight)", type=["csv"])
+
+if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
 else:
-    st.info("Using sample dataset from /data/comms.csv")
+    st.sidebar.info("Using sample dataset (comms.csv)")
     df = pd.read_csv("data/comms.csv")
 
-st.subheader("🔍 Dataset Preview")
-st.dataframe(df.head(15))
+# ===============================
+# Preprocess Data
+# ===============================
+if "weight" not in df.columns:
+    df["weight"] = 1  # default if missing
 
-# ================== BUILD GRAPH ==================
 G = nx.from_pandas_edgelist(df, "source", "target", ["weight"])
 
-# ================== METRICS ==================
-st.subheader("📊 Network Metrics")
+# ===============================
+# Sidebar Analysis Options
+# ===============================
+st.sidebar.header("⚙️ Visualization Settings")
 
-degree_centrality = nx.degree_centrality(G)
-betweenness = nx.betweenness_centrality(G)
-closeness = nx.closeness_centrality(G)
+min_weight = st.sidebar.slider("Minimum edge weight", 1, int(df["weight"].max()), 1)
+df = df[df["weight"] >= min_weight]
+G = nx.from_pandas_edgelist(df, "source", "target", ["weight"])
 
-metrics = pd.DataFrame({
-    "Node": degree_centrality.keys(),
-    "Degree Centrality": degree_centrality.values(),
-    "Betweenness": betweenness.values(),
-    "Closeness": closeness.values()
-}).sort_values("Degree Centrality", ascending=False)
-
-st.write(metrics)
-
-# ================== COMMUNITY DETECTION ==================
-st.subheader("👥 Community Detection")
-try:
-    from networkx.algorithms.community import greedy_modularity_communities
-    communities = list(greedy_modularity_communities(G))
-    comm_map = {}
-    for i, comm in enumerate(communities):
-        for node in comm:
-            comm_map[node] = i
-    metrics["Community"] = metrics["Node"].map(comm_map)
-    st.write(metrics)
-except Exception as e:
-    st.warning("Community detection unavailable. Install `networkx` >= 2.8")
-
-# ================== VISUALIZATION ==================
-st.subheader("🌐 Network Graph")
-
-fig, ax = plt.subplots(figsize=(10,7))
-pos = nx.spring_layout(G, seed=42)
-
-node_sizes = [v * 2500 for v in degree_centrality.values()]
-node_colors = [comm_map.get(node, 0) for node in G.nodes()]
-
-nx.draw_networkx(
-    G, pos, with_labels=True, node_size=node_sizes,
-    node_color=node_colors, cmap=plt.cm.Set3,
-    edge_color="gray", font_size=9, ax=ax
+layout_option = st.sidebar.selectbox(
+    "Graph Layout",
+    ["spring", "circular", "kamada_kawai"]
 )
 
-st.pyplot(fig)
+size_metric = st.sidebar.selectbox(
+    "Node Size Metric",
+    ["degree", "betweenness", "closeness"]
+)
 
-# ================== INSIGHTS ==================
-st.subheader("📌 Key Insights")
-st.markdown("""
-- **Leaders** (high degree centrality) manage multiple recruits.  
-- **Couriers** (high betweenness) act as bridges between clusters.  
-- **Tightly connected groups** detected using community detection.  
-- Cross-links between leaders show **inter-group collaboration**.  
-""")
+# ===============================
+# Centrality Computation
+# ===============================
+degree_centrality = nx.degree_centrality(G)
+betweenness_centrality = nx.betweenness_centrality(G)
+closeness_centrality = nx.closeness_centrality(G)
+
+# Pick node size metric
+if size_metric == "degree":
+    centrality = degree_centrality
+elif size_metric == "betweenness":
+    centrality = betweenness_centrality
+else:
+    centrality = closeness_centrality
+
+# ===============================
+# Community Detection
+# ===============================
+from networkx.algorithms.community import greedy_modularity_communities
+communities = list(greedy_modularity_communities(G))
+community_map = {}
+for i, c in enumerate(communities):
+    for node in c:
+        community_map[node] = i
+
+# ===============================
+# PyVis Interactive Graph
+# ===============================
+net = Network(notebook=False, height="600px", width="100%", bgcolor="#222222", font_color="white")
+net.force_atlas_2based()
+
+for node in G.nodes():
+    net.add_node(
+        node,
+        title=f"Node: {node}<br>"
+              f"Degree: {degree_centrality.get(node,0):.2f}<br>"
+              f"Betweenness: {betweenness_centrality.get(node,0):.2f}<br>"
+              f"Closeness: {closeness_centrality.get(node,0):.2f}",
+        value=centrality.get(node, 1)*20,
+        color=f"hsl({community_map.get(node,0)*50},70%,50%)"
+    )
+
+for source, target, data in G.edges(data=True):
+    net.add_edge(source, target, value=data["weight"])
+
+# Save and display
+net.save_graph("network.html")
+HtmlFile = open("network.html", "r", encoding="utf-8")
+components.html(HtmlFile.read(), height=650)
+
+# ===============================
+# Insights Panel
+# ===============================
+st.subheader("📊 Key Insights")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("### 🔝 Top 5 Influential Nodes")
+    top_nodes = sorted(centrality.items(), key=lambda x: x[1], reverse=True)[:5]
+    st.table(pd.DataFrame(top_nodes, columns=["Node", f"{size_metric.capitalize()} Centrality"]))
+
+with col2:
+    st.markdown("### 🏘️ Communities Detected")
+    st.write(f"Total Communities: {len(communities)}")
+    for i, c in enumerate(communities):
+        st.write(f"**Community {i+1}:** {list(c)}")
