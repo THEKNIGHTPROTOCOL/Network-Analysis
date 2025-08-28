@@ -83,6 +83,7 @@ Leader3,Leader1,4
 ### 🌐 Example Dashboard Screenshot
 
 ![](https://github.com/user-attachments/assets/03e98026-d64b-43f9-938d-5405296a180f)
+![e](https://github.com/user-attachments/assets/50a59815-ca71-427b-b9b2-4138358b22aa)
 
 
 ---
