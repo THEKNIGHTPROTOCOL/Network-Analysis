@@ -15,7 +15,8 @@ Built with **Streamlit**, it provides an interactive dashboard for exploring com
 
 ---
 
-## 🚀 Features
+##3 🚀 Features
+
 ✅ Upload or use sample dataset (`comms.csv`)  
 ✅ Compute **network centrality metrics**:
 - **Degree Centrality** → Most connected actors  
@@ -32,7 +33,7 @@ Built with **Streamlit**, it provides an interactive dashboard for exploring com
 
 
 
-🛠️ Installation
+### 🛠️ Installation
 
 Clone this repository:
 
